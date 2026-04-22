@@ -1,5 +1,11 @@
 # ComfyUI-Nucleus-Image
 
+> **⚠️ 测试版本 / Beta Version**
+>
+> 本节点为测试版本。目前仅验证了 FP8 模型的正常推理流程；FP16 因硬件限制未实际运行测试。参数无明确限制，采样器与调度器经个人测试 euler + normal 效果较好。块交换（Block Swap）、CFG 缩放（CFG Rescale）、模型偏移（Model Shift）等功能未进行实际运行测试，但代码已通过检查。
+>
+> This is a beta release. Only FP8 model inference has been tested; FP16 has not been run due to hardware limitations. There are no explicit parameter restrictions. Personally tested: euler + normal sampler/scheduler gives good results. Block Swap, CFG Rescale, and Model Shift features have not been runtime-tested but have passed code review.
+
 Nucleus-Image 17B MoE 扩散模型的 ComfyUI 自定义节点。
 
 ## 环境要求
