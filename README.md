@@ -92,33 +92,37 @@ python merge_shards.py --input "D:\AI\Nucleus-Image\text_encoder" ^
 ```
 [Nucleus Block Swap]──────BLOCKSWAPARGS──────┐
                                               ▼
-[Nucleus Transformer Loader]──NUCLEUS_MODEL──┐
-                                               │
-[Nucleus Text Encoder Loader]──NUCLEUS_TE──┐  │
-                                             │  │
-[Nucleus Text Encode(正向)]──COND──┐         │  │
-[Nucleus Text Encode(负向)]──COND──┘         │  │
-                     ▼                        ▼  ▼
-[Nucleus Advanced Config]──ADV_ARGS──┐  ┌──[Nucleus Sampler]──NUCLEUS_LATENT──▶[Nucleus VAE Decode]──▶IMAGE
-                                      │  │                                        ▲
-                                      └──┘                                        │
-[Nucleus VAE Loader]────────────NUCLEUS_VAE──────────────────────────────────────┘
+[Nucleus Transformer Loader]──NUCLEUS_MODEL──┬──[Nucleus Model Shift]──NUCLEUS_MODEL
+                                               └──[Nucleus CFG Rescale]──NUCLEUS_MODEL
+                                                        │
+[Nucleus Text Encoder Loader]──NUCLEUS_TE──┐           │
+                                            │           │
+[Nucleus Text Encode]──────────COND──┐      │           │
+[Nucleus Text Encode (Dual)]──COND×2─┤      │           │
+[Nucleus Zero Conditioning]───COND───┘      │           │
+                     ▼                       ▼           ▼
+                  [Nucleus Sampler]──NUCLEUS_LATENT──▶[Nucleus VAE Decode]──▶IMAGE
+                                                               ▲
+                  [Nucleus VAE Loader]────NUCLEUS_VAE─────────┘
 ```
 
-共 8 个节点（Advanced Config 为可选）：
+共 11 个节点：
 
 | 节点 | 说明 |
 |------|------|
 | **Transformer Loader** | 加载 Transformer（从 `diffusion_models/`） |
-| **Text Encoder Loader** | 加载 Qwen3-VL 文本编码器（从 `text_encoders/`） |
+| **Text Encoder Loader** | 加载 Qwen3-VL 文本编码器（从 `text_encoders/`），延迟加载 |
 | **VAE Loader** | 加载 VAE（从 `vae/`） |
 | **Block Swap** | 配置块交换参数（可选） |
-| **Text Encode** | 编码提示词（支持正/负向） |
-| **Advanced Config** | 配置 CFG 归一化与时间步偏移（可选） |
-| **Sampler** | 去噪采样（支持 ComfyUI 采样器/调度器） |
+| **Text Encode** | 编码提示词（正向或负向） |
+| **Text Encode (Dual)** | 同时编码正向+负向提示词，只加载一次 TE（更快） |
+| **Zero Conditioning** | 零条件嵌入，无需加载 TE（即时生成） |
+| **Model Shift** | 覆盖 sigma shift 参数（可选） |
+| **CFG Rescale** | CFG 自适应归一化强度（可选） |
+| **Sampler** | 去噪采样（支持 ComfyUI 全部采样器/调度器） |
 | **VAE Decode** | 解码 latent 为图片 |
 
-## 推荐参数（24GB VRAM + 32GB RAM）
+## 推荐参数（24GB VRAM）
 
 ### 方案 A：FP8 快速模式（推荐）
 
@@ -126,63 +130,28 @@ python merge_shards.py --input "D:\AI\Nucleus-Image\text_encoder" ^
 |------|------|---|
 | **Transformer Loader** | model_name | `nucleus_image_transformer_fp8.safetensors` |
 | | precision | `bf16` |
-| | quantization | `disabled`（自动检测 FP8） |
-| | device | `GPU` |
+| | load_device | `offload_device` |
 | **Block Swap** | blocks_to_swap | `0`（全部放 GPU） |
 | **Text Encoder Loader** | model_name | `nucleus_image_text_encoder_fp8.safetensors` |
 | | precision | `bf16` |
-| | quantization | `disabled`（自动检测 FP8） |
-| | device | `CPU` |
-| **Text Encode** | force_offload | `true` |
+| **Text Encode (Dual)** | positive_text | 正向提示词 |
+| | negative_text | 负向提示词 |
 | **Sampler** | steps | `50` |
 | | cfg | `4.0` |
 | | sampler_name | `euler` |
 | | scheduler_name | `normal` |
-| | force_offload | `true` |
 | **VAE Loader** | model_name | `nucleus_image_vae.safetensors` |
 | | precision | `bf16` |
 | **VAE Decode** | — | — |
-
-**预计资源占用：**
-- GPU 峰值：~22 GB（采样阶段）
-- CPU 占用：~4 GB（text encoder 编码后已卸载）
-- 总耗时：~80 秒（50 步）
 
 ### 方案 B：bf16 高质量模式
 
 | 节点 | 参数 | 值 |
 |------|------|---|
 | **Transformer Loader** | model_name | `nucleus_image_transformer_bf16.safetensors` |
-| | device | `CPU` |
+| | load_device | `offload_device` |
 | **Block Swap** | blocks_to_swap | `14`（15 块在 GPU，14 块在 CPU） |
 | 其余同方案 A | | |
-
-**预计资源占用：**
-- GPU 峰值：~21 GB
-- CPU 占用：~15 GB（14 块 expert bf16）
-- 总耗时：~120 秒（50 步，因 CPU↔GPU 交换）
-
-## 内存占用参考表
-
-### FP8 模式（blocks_to_swap 可调）
-
-| blocks_to_swap | GPU 峰值 | CPU 占用 | 速度 |
-|---------------|---------|---------|------|
-| 0 | ~22 GB | ~4 GB | 最快 |
-| 10 | ~17 GB | ~9 GB | 快 |
-| 20 | ~12 GB | ~14 GB | 中等 |
-| 29 | ~7 GB | ~15 GB | 慢 |
-
-### bf16 模式（blocks_to_swap 可调）
-
-| blocks_to_swap | GPU 峰值 | CPU 占用 | 速度 |
-|---------------|---------|---------|------|
-| 0 | ~34 GB | ~0 | 最快（需 48GB VRAM） |
-| 14 | ~21 GB | ~15 GB | 中等（24GB VRAM 推荐） |
-| 20 | ~15 GB | ~21 GB | 慢 |
-| 29 | ~7 GB | ~31 GB | 最慢（需 48GB RAM） |
-
-> 每个 MoE 层 expert：~528 MB (FP8) / ~1.06 GB (bf16)。29 个 MoE 层（层 3-31）。
 
 ## 节点参数详解
 
@@ -191,42 +160,73 @@ python merge_shards.py --input "D:\AI\Nucleus-Image\text_encoder" ^
 | 参数 | 类型 | 说明 |
 |------|------|------|
 | model_name | 下拉 | `models/diffusion_models/` 中的权重文件 |
-| precision | `bf16`/`fp16`/`fp32` | 计算精度（bf16 推荐） |
-| quantization | `disabled`/`fp8_e4m3fn` | 权重量化（`disabled` 自动检测） |
-| device | `CPU`/`GPU` | 非专家参数存放设备 |
+| precision | `bf16` / `fp16` / `fp32` | 计算精度（bf16 推荐） |
+| load_device | `offload_device` / `main_device` | 非专家参数初始存放设备 |
 | block_swap_args | BLOCKSWAPARGS | 块交换配置（可选） |
+
+> FP8 模型文件会被自动检测并处理（expert FP8 权重按层反量化计算，无需手动指定 quantization）。
 
 ### Nucleus-Image Text Encoder Loader
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
 | model_name | 下拉 | `models/text_encoders/` 中的权重文件 |
-| precision | `bf16`/`fp16`/`fp32` | 计算精度 |
-| quantization | `disabled`/`fp8_e4m3fn` | 权重量化（`disabled` 自动检测） |
-| device | `CPU`/`GPU` | 初始加载设备 |
+| precision | `bf16` / `fp16` / `fp32` | 计算精度 |
+
+> 延迟加载：此节点仅记录路径，实际加载在 Text Encode 节点执行时发生（加载到 GPU → 编码 → 自动释放）。
 
 ### Nucleus-Image VAE Loader
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
 | model_name | 下拉 | `models/vae/` 中的权重文件 |
-| precision | `bf16`/`fp16`/`fp32` | 计算精度 |
+| precision | `bf16` / `fp16` / `fp32` | 计算精度 |
 
 ### Nucleus-Image Block Swap
 
 | 参数 | 类型 | 默认 | 说明 |
 |------|------|------|------|
-| enabled | BOOLEAN | true | 启用块交换 |
-| blocks_to_swap | INT | 0 | 交换到 CPU 的 MoE 块数量（0-29） |
-| prefetch_blocks | INT | 0 | 异步预取块数 |
+| blocks_to_swap | INT | 0 | 交换到 CPU 的 MoE 块数量（0-29），0 = 全部放 GPU |
 
 ### Nucleus-Image Text Encode
 
 | 参数 | 类型 | 默认 | 说明 |
 |------|------|------|------|
-| text_encoder | NUCLEUS_TEXT_ENCODER | — | 来自 Text Encoder Loader |
+| text_encoder | NUCLEUS_TE | — | 来自 Text Encoder Loader |
 | text | STRING | "" | 提示词（支持多行） |
-| force_offload | BOOLEAN | true | 编码后卸载到 CPU 释放 VRAM |
+
+> 编码完成后 TE 自动从 GPU 释放。
+
+### Nucleus-Image Text Encode (Dual)
+
+| 参数 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| text_encoder | NUCLEUS_TE | — | 来自 Text Encoder Loader |
+| positive_text | STRING | "" | 正向提示词 |
+| negative_text | STRING | "" | 负向提示词 |
+
+> 只加载一次 TE 模型同时编码正向和负向，避免重复加载，输出两个 `NUCLEUS_CONDITIONING`。
+
+### Nucleus-Image Zero Conditioning
+
+无输入参数。生成零嵌入作为条件（即时，无需加载 TE）。适用于无条件生成或作为负向条件的替代。
+
+### Nucleus-Image Model Shift
+
+| 参数 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| model | NUCLEUS_MODEL | — | 来自 Transformer Loader |
+| base_shift | FLOAT | 0.5 | 基础 shift 值 |
+| max_shift | FLOAT | 1.15 | 最大 shift 值 |
+
+> 如不连接此节点，使用调度器配置中的默认值。
+
+### Nucleus-Image CFG Rescale
+
+| 参数 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| model | NUCLEUS_MODEL | — | 来自 Transformer Loader（或 Model Shift） |
+| cfg_rescale | FLOAT | 1.0 | CFG 自适应归一化强度（0.0-1.0），1.0 = 官方默认 |
 
 ### Nucleus-Image Sampler
 
@@ -242,7 +242,8 @@ python merge_shards.py --input "D:\AI\Nucleus-Image\text_encoder" ^
 | seed | INT | 0 | 随机种子 |
 | sampler_name | 下拉 | euler | ComfyUI 内置采样器 |
 | scheduler_name | 下拉 | normal | ComfyUI 内置调度器 |
-| force_offload | BOOLEAN | true | 采样后卸载到 CPU 释放 VRAM |
+
+> 采样完成后 Transformer 自动 offload 到 CPU。
 
 ### Nucleus-Image VAE Decode
 
@@ -250,6 +251,8 @@ python merge_shards.py --input "D:\AI\Nucleus-Image\text_encoder" ^
 |------|------|------|
 | vae | NUCLEUS_VAE | 来自 VAE Loader |
 | samples | NUCLEUS_LATENT | 来自 Sampler |
+
+> 解码完成后 VAE 自动 offload 到 CPU。
 
 ## 推荐分辨率
 
@@ -263,7 +266,7 @@ python merge_shards.py --input "D:\AI\Nucleus-Image\text_encoder" ^
 ## 常见问题
 
 **Q: 图片和提示词无关？**
-A: 确保使用了负向提示词（Text Encode 负向连到 Sampler 的 negative 输入）。空字符串 `""` 也可以作为负向条件。
+A: 确保使用了负向提示词（Text Encode 负向连到 Sampler 的 negative 输入）。空字符串 `""` 也可以作为负向条件。推荐使用 Text Encode (Dual) 节点同时编码正负向。
 
 **Q: 图片偏暗/发灰？**
 A: 确认 VAE Loader 使用的是正确的模型文件，不要用其他模型的 VAE。
@@ -273,3 +276,6 @@ A: 增大 `blocks_to_swap` 值，或从 bf16 切换到 FP8 模型。
 
 **Q: 为什么不能用 ComfyUI 内置的 CLIPLoader / VAELoader？**
 A: Nucleus-Image 使用 Qwen3-VL（非标准 CLIP）和 AutoencoderKLQwenImage（16 通道 latent），架构与标准 SD/SDXL 不同，必须使用专用加载器。
+
+**Q: Text Encoder Loader 没有加载设备选项？**
+A: Text Encoder 采用延迟加载策略，在 Text Encode 节点执行时自动加载到 GPU，编码完成后自动释放，无需手动管理设备。
