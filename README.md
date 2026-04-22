@@ -15,20 +15,29 @@ Nucleus-Image 17B MoE 扩散模型的 ComfyUI 自定义节点。
 
 ### 软件依赖
 
-| 依赖 | 最低版本 | 说明 |
-|------|---------|------|
-| Python | 3.11+ | 3.13 测试通过 |
-| PyTorch | 2.11+ | 需要 `F.grouped_mm` 支持 |
-| CUDA | 12.0+ | RTX 40/50 系列 |
-| ComfyUI | 0.19+ | |
-| diffusers | 0.38+ | NucleusMoE 管线支持 |
-| transformers | 4.57+ | Qwen3-VL 支持 |
-| safetensors | 0.5+ | |
+> 详细依赖说明见 [REQUIREMENTS.md](REQUIREMENTS.md)
+
+| 依赖 | 最低版本 | 测试版本 | 说明 |
+|------|---------|---------|------|
+| Python | 3.11+ | 3.13.11 | |
+| PyTorch | 2.11+ | 2.11.0+cu130 | 需要 `F.grouped_mm` 支持 |
+| CUDA | 12.0+ | 13.0 | RTX 40/50 系列 |
+| cuDNN | 9.0+ | 9.19.0 | |
+| ComfyUI | 0.19+ | — | |
+| diffusers | 0.38+ | 0.38.0.dev0 | NucleusMoE 管线支持 |
+| transformers | 4.57+ | 4.57.6 | Qwen3-VL 支持 |
+| safetensors | 0.5+ | 0.8.0-rc.0 | |
+| accelerate | 1.0+ | 1.12.0 | 设备管理与 offload |
+| numpy | 1.26+ | 2.3.5 | |
+| Pillow | 10.0+ | 12.1.0 | |
+| scipy | 1.13+ | 1.17.0 | 调度器数值计算 |
 
 验证环境：
 ```bash
-python -c "import torch; print(torch.__version__, torch.version.cuda)"
+python -c "import torch; print('PyTorch:', torch.__version__, 'CUDA:', torch.version.cuda)"
 python -c "import torch; print('grouped_mm:', hasattr(torch.nn.functional, 'grouped_mm'))"
+python -c "import diffusers; print('diffusers:', diffusers.__version__)"
+python -c "import transformers; print('transformers:', transformers.__version__)"
 ```
 
 ## 模型文件安装
