@@ -8,16 +8,9 @@
 
 Nucleus-Image 17B MoE 扩散模型的 ComfyUI 自定义节点。
 
+模型官网：https://huggingface.co/NucleusAI/Nucleus-Image
+
 ## 环境要求
-
-### 硬件
-
-| 配置等级 | VRAM | RAM | 推荐精度 | blocks_to_swap |
-|---------|------|-----|---------|---------------|
-| 最低 | 8 GB | 16 GB | FP8 | 29（全交换） |
-| 推荐 | 24 GB | 32 GB | FP8 | 0（全 GPU） |
-| 高端 | 24 GB | 48 GB+ | bf16 | 12-14 |
-| 最佳 | 48 GB+ | 64 GB+ | bf16 | 0（全 GPU） |
 
 ### 软件依赖
 
@@ -128,16 +121,13 @@ python merge_shards.py --input "D:\AI\Nucleus-Image\text_encoder" ^
 | **Sampler** | 去噪采样（支持 ComfyUI 全部采样器/调度器） |
 | **VAE Decode** | 解码 latent 为图片 |
 
-## 推荐参数（24GB VRAM）
-
-### 方案 A：FP8 快速模式（推荐）
+## 已验证参数（24GB VRAM + FP8 模型）
 
 | 节点 | 参数 | 值 |
 |------|------|---|
 | **Transformer Loader** | model_name | `nucleus_image_transformer_fp8.safetensors` |
 | | precision | `bf16` |
 | | load_device | `offload_device` |
-| **Block Swap** | blocks_to_swap | `0`（全部放 GPU） |
 | **Text Encoder Loader** | model_name | `nucleus_image_text_encoder_fp8.safetensors` |
 | | precision | `bf16` |
 | **Text Encode (Dual)** | positive_text | 正向提示词 |
@@ -149,15 +139,6 @@ python merge_shards.py --input "D:\AI\Nucleus-Image\text_encoder" ^
 | **VAE Loader** | model_name | `nucleus_image_vae.safetensors` |
 | | precision | `bf16` |
 | **VAE Decode** | — | — |
-
-### 方案 B：bf16 高质量模式
-
-| 节点 | 参数 | 值 |
-|------|------|---|
-| **Transformer Loader** | model_name | `nucleus_image_transformer_bf16.safetensors` |
-| | load_device | `offload_device` |
-| **Block Swap** | blocks_to_swap | `14`（15 块在 GPU，14 块在 CPU） |
-| 其余同方案 A | | |
 
 ## 节点参数详解
 
